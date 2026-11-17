@@ -95,3 +95,12 @@ class AttachmentResponse(AttachmentCreate):
 
 class AssignedTaskResponse(TaskResponse):
     project_name: str
+
+class NotificationResponse(BaseModel):
+    id: int
+    user_id: int
+    task_id: int | None
+    event_type: str
+    payload: dict[str, Any]
+    read_at: datetime | None
+    created_at: datetime

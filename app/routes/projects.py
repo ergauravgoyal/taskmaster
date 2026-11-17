@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import connection
 from app.deps import current_user
 from app.models import InvitationResponse, MemberAdd, ProjectCreate, ProjectResponse
+from app.notifications import create_notification
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -52,6 +53,10 @@ async def invite_member(project_id: int, payload: MemberAdd, user=Depends(curren
             RETURNING id,project_id,inviter_id,invitee_id,status,created_at,responded_at
             """,
             project_id, user_id, payload.user_id,
+        )
+        await create_notification(
+            conn, payload.user_id, "project_invitation",
+            {"project_id": project_id, "invitation_id": row["id"]},
         )
     return dict(row)
 

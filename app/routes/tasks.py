@@ -9,6 +9,7 @@ from app.models import (
     AttachmentCreate, AttachmentResponse, CommentCreate, CommentResponse,
     TaskCreate, TaskResponse, TaskUpdate,
 )
+from app.notifications import create_notification
 
 router = APIRouter(prefix="/projects/{project_id}/tasks", tags=["Tasks"])
 assigned_router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -36,7 +37,14 @@ async def create_task(project_id: int, payload: TaskCreate, user=Depends(current
             project_id, payload.title, payload.description, payload.due_date,
             payload.assignee_id, user_id,
         )
-        return dict(row)
+        result = dict(row)
+        if payload.assignee_id and payload.assignee_id != user_id:
+            await create_notification(
+                conn, payload.assignee_id, "task_assigned",
+                {"task_id": row["id"], "project_id": project_id, "title": row["title"]},
+                row["id"],
+            )
+        return result
 
 @router.get("", response_model=list[TaskResponse])
 async def list_tasks(
@@ -109,7 +117,21 @@ async def update_task(project_id: int, task_id: int, payload: TaskUpdate, user=D
         )
     if not row:
         raise HTTPException(404, "Task not found")
-    return dict(row)
+    result = dict(row)
+    recipients = set()
+    if row["assignee_id"] and row["assignee_id"] != user[0]:
+        recipients.add(row["assignee_id"])
+    if row["creator_id"] != user[0]:
+        recipients.add(row["creator_id"])
+    event_type = "task_assigned" if "assignee_id" in values else "task_updated"
+    async with connection() as conn:
+        for recipient in recipients:
+            await create_notification(
+                conn, recipient, event_type,
+                {"task_id": row["id"], "project_id": project_id, "title": row["title"]},
+                row["id"],
+            )
+    return result
 
 @router.delete("/{task_id}", status_code=204)
 async def delete_task(project_id: int, task_id: int, user=Depends(current_user)):
@@ -130,7 +152,18 @@ async def add_comment(project_id: int, task_id: int, payload: CommentCreate, use
             "INSERT INTO comments(task_id,author_id,body) VALUES($1,$2,$3) RETURNING id,task_id,author_id,body,created_at",
             task_id, user[0], payload.body,
         )
-        return dict(row)
+        result = dict(row)
+        task = await conn.fetchrow(
+            "SELECT assignee_id,creator_id FROM tasks WHERE id=$1", task_id,
+        )
+        recipients = {task["assignee_id"], task["creator_id"]} - {user[0], None}
+        for recipient in recipients:
+            await create_notification(
+                conn, recipient, "comment_added",
+                {"task_id": task_id, "project_id": project_id, "comment_id": row["id"]},
+                task_id,
+            )
+        return result
 
 @router.get("/{task_id}/comments", response_model=list[CommentResponse])
 async def list_comments(project_id: int, task_id: int, user=Depends(current_user)):

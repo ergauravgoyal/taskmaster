@@ -12,8 +12,92 @@ It supports:
 - Comments and file attachments
 - Project invitations
 - Secure logout
+- Real-time task notifications over WebSockets
 
-Real-time notifications and AI features are optional future extensions.
+AI features are an optional future extension.
+
+## Real-time notifications
+
+After logging in, connect a WebSocket client using the returned access token:
+
+```text
+ws://localhost:8001/notifications/ws?token=ACCESS_TOKEN
+```
+
+The server sends JSON notifications when a task is assigned or updated, a
+comment is added, or a project invitation is created. Missed notifications
+can be retrieved with `GET /notifications?unread_only=true`; mark one as read
+with `POST /notifications/{notification_id}/read`.
+
+The WebSocket connection authenticates the access token and remains open while
+the user is online. A notification has this shape:
+
+```json
+{
+  "id": 1,
+  "user_id": 2,
+  "task_id": 10,
+  "event_type": "task_assigned",
+  "payload": {
+    "task_id": 10,
+    "project_id": 4,
+    "title": "Prepare release notes"
+  },
+  "read_at": null,
+  "created_at": "2026-11-17T14:05:00+00:00"
+}
+```
+
+For local development on port `8000`, use:
+
+```text
+ws://localhost:8000/notifications/ws?token=ACCESS_TOKEN
+```
+
+The following browser example opens a connection and prints incoming events:
+
+```javascript
+const token = "ACCESS_TOKEN";
+const socket = new WebSocket(
+  `ws://localhost:8001/notifications/ws?token=${encodeURIComponent(token)}`
+);
+
+socket.onopen = () => console.log("Connected to notifications");
+socket.onmessage = (event) => {
+  const notification = JSON.parse(event.data);
+  console.log(notification.event_type, notification);
+};
+socket.onclose = () => console.log("Disconnected from notifications");
+socket.onerror = (error) => console.error("WebSocket error", error);
+```
+
+### Notification REST endpoints
+
+List all notifications:
+
+```bash
+curl http://localhost:8001/notifications \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+List only unread notifications:
+
+```bash
+curl "http://localhost:8001/notifications?unread_only=true" \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Mark a notification as read:
+
+```bash
+curl -X POST http://localhost:8001/notifications/1/read \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Replace `ACCESS_TOKEN` with the `access_token` returned by
+`POST /auth/login`. Notifications are stored in PostgreSQL, so notifications
+created while a user is offline can be retrieved later through the REST
+endpoint.
 
 ## Start the application
 
